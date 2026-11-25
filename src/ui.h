@@ -8,7 +8,7 @@ typedef enum {
 } sc;
 
 void ui_start();
-void print(char* text, bool is_think);
+void print(const char* text, bool is_think);
 void print_chat();
 void sysmsg(const char* text, ...);
 void syserr(const char* text, ...);

@@ -10,3 +10,5 @@ sc load_model(char* path, char* arg2);
 void server_stop();
 sc hchat(char* text);
 void chat_append(const char* role, const char* content);
+
+struct json_object *cut_context(void);

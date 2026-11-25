@@ -1,6 +1,7 @@
 #include <string.h>
 #include "ui.h"
 #include "server.h"
+#include "config.h"
 
 char *ChatName  = NULL;
 char *ToolName  = NULL;
@@ -11,6 +12,7 @@ int main(void) {
     ToolName  = strdup("System");
     ModelName = strdup("Model");
 
+    cfgload();
     ui_start();
 
     server_stop();

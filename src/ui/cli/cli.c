@@ -11,10 +11,12 @@
 #include "server.h"
 #include "completion.h"
 #include "cli.h"
+#include "config.h"
 
 extern char *ModelName;
 extern char *ChatName;
 extern char *ToolName;
+extern cfg config;
 
 sc help(char* nil1, char* nil2) {
     (void)nil1; (void)nil2;
@@ -49,7 +51,7 @@ void print_box() {
     printf("\n");
     struct winsize w;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0) {
-        for (int i = 0; i < w.ws_col; i++) printf("─");
+        for (int i = 0; i < w.ws_col; i++) printf(COLOR_THINK "─" COLOR_RESET);
     }
 }
 
@@ -79,13 +81,26 @@ void ui_start() {
     completion_set();
     using_history();
     system("clear");
-    printf(COLOR_SYSTEM "Welcome to llorch!\n" COLOR_RESET);
+    char* hello = {
+        "\033[1;38;5;183m"
+        "                                               ╭─────────────────────────────────────────────────────╮\n"
+        "   █     █      ███  ████   ███  █   █         │llorch v0.1                                          │\n"
+        "   █░    █░    █ ░░█ █░░░█ █ ░░░ █░  █░        │Type /load <path/name> to load server with this model│\n"
+        "   █░░   █░░   █░ ░█░████░░█░ ░░░█████░░       │To manage chats use:                                 │\n"
+        "   █░░   █░░   █░░ █░█░░█░ █░░   █░░░█░░       ├─ /mkchat <name>   to make chat                      │\n"
+        "   █████ █████  ███ ░█░░░█░ ███  █░░░█░░       ├─ /rmchat <name>   to remove chat                    │\n"
+        "    ░░░░░ ░░░░░  ░░░ ░░░  ░  ░░░  ░░  ░░       ├─ /open <name>     to open chat                      │\n"
+        "     ░░░░░ ░░░░░  ░░░  ░   ░  ░░░  ░   ░       │To get more info type /help                          │\n"
+        "                                               ╰─────────────────────────────────────────────────────╯"
+    };
+    printf("%s" COLOR_RESET, hello);
+    sysmsg("\n\nport = %d\nn_ctx = %d\nreserve = %d\nmodels_dir = %s\nchats_dir = %s\nserver_flags = %s\nflags_count = %d", config.port, config.n_ctx, config.reserve, config.models_dir, config.chats_dir, config.server_flags, config.flags_count);
 
     while (1) {
         printf("\n");
         print_box();
         char prompt[256];
-        snprintf(prompt, sizeof(prompt), "\n\001%s\002[%s] You:\n\001%s\002", COLOR_USER, ChatName, COLOR_RESET);
+        snprintf(prompt, sizeof(prompt), "\n\001%s\002[%s] You:\n\001%s\002> ", COLOR_USER, ChatName, COLOR_RESET);
 
         char *line = readline(prompt);
         if (!line) {
@@ -97,6 +112,7 @@ void ui_start() {
         if (line[0] == '/') {
             sc code = hcomm(line);
             if (code == QUIT) {
+                cfgfree(&config);
                 free(line);
                 break;
             }

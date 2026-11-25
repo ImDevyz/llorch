@@ -1,6 +1,7 @@
 #include "server.h"
 #include "commands.h"
 #include "ui.h"
+#include "config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,8 +21,9 @@ static volatile sig_atomic_t gen_abort = 0;
 extern char *ModelName;
 extern char *ChatName;
 extern char *ToolName;
+extern cfg config;
 
-#define API_URL "http://127.0.0.1:8080/v1/chat/completions"
+char* lh = "http://127.0.0.1:";
 
 static void on_sigint(int s) {
     (void)s;
@@ -69,11 +71,12 @@ static size_t cbstream(char *ptr, size_t size, size_t nmemb, void *ud) {
             if (*p == ' ') p++;
             struct json_object *j = NULL, *ch, *d, *t;
             if (strcmp(p, "[DONE]") != 0) j = json_tokener_parse(p);
-
-            if (j && json_object_object_get_ex(j, "choices", &ch) &&
-                json_object_array_length(ch) > 0 &&
-                json_object_object_get_ex(json_object_array_get_idx(ch, 0), "delta", &d)) {
-
+            if (j) {
+                struct json_object *err;
+                if (json_object_object_get_ex(j, "error", &err))
+                    syserr("\n[SERVER] %s\n", json_object_to_json_string(err));
+            }
+            if (j && json_object_object_get_ex(j, "choices", &ch) && json_object_array_length(ch) > 0 && json_object_object_get_ex(json_object_array_get_idx(ch, 0), "delta", &d)) {
                 if (json_object_object_get_ex(d, "reasoning_content", &t)) {
                     const char *v = json_object_get_string(t);
                     if (v && *v) {
@@ -85,7 +88,7 @@ static size_t cbstream(char *ptr, size_t size, size_t nmemb, void *ud) {
                     }
                 }
 
-                if (json_object_object_get_ex(d, "content", &t)) {
+                if (json_object_object_get_ex(d, "content", &t)) {                   
                     const char *v = json_object_get_string(t);
                     if (v && *v) {
                         if (s->thinking) {
@@ -162,7 +165,21 @@ sc load_model(char *path, char* nil) {
         freopen("/tmp/llorch-server-out.log", "w", stdout);
         freopen("/tmp/llorch-server-err.log", "w", stderr);
 
-        char *args[] = {"llama-server", "-m", rpath, "--port", "8080", "-ngl", "99", "-c", "16384", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--jinja", NULL};
+        char port_str[16], ctx_str[16];
+        snprintf(port_str, sizeof(port_str), "%d", config.port);
+        snprintf(ctx_str, sizeof(ctx_str), "%d", config.n_ctx);
+
+        char *args[64];
+        int n = 0;
+        args[n++] = "llama-server";
+        args[n++] = "-m";     args[n++] = rpath;
+        args[n++] = "--port"; args[n++] = port_str;
+        args[n++] = "-c";     args[n++] = ctx_str;
+
+        for (int i = 0; i < config.flags_count && n < 62; i++)
+            if (config.server_flags[i]) args[n++] = config.server_flags[i];
+
+        args[n] = NULL;
         execvp("llama-server", args);
         _exit(1);
     }
@@ -175,7 +192,9 @@ sc load_model(char *path, char* nil) {
             syserr("Error while making curl request: %s\n", strerror(errno));
             return ERR;
         }
-        curl_easy_setopt(curl, CURLOPT_URL, "http://127.0.0.1:8080/health");
+        char hch[256];
+        snprintf(hch, sizeof(hch), "%s%d/health", lh, config.port);
+        curl_easy_setopt(curl, CURLOPT_URL, hch);
         curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
         int code = 0;
         CURLcode res = curl_easy_perform(curl);
@@ -200,7 +219,7 @@ sc load_model(char *path, char* nil) {
 
 sc hchat(char *text) {
     if (server_pid <= 0) {
-        sysmsg("Server don't started. Use /load <ModelName>\n");
+        sysmsg("Server isn't running. Use /load <ModelName>\n");
         return ERR;
     }
 
@@ -210,13 +229,16 @@ sc hchat(char *text) {
     }
 
     chat_append("user", text);
+    struct json_object* context = cut_context();
 
     struct json_object *root = json_object_new_object();
-    json_object_object_add(root, "messages", json_object_get(messages));
+    json_object_object_add(root, "messages", context);
     json_object_object_add(root, "model", json_object_new_string(ModelName));
     json_object_object_add(root, "stream", json_object_new_boolean(1));
 
     const char *json_str = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
+    FILE *dbg = fopen("/tmp/llorch-last-request.json", "w");
+    if (dbg) { fputs(json_str, dbg); fputc('\n', dbg); fclose(dbg); }
 
     CURL *curl = curl_easy_init();
     if (!curl) { 
@@ -230,7 +252,9 @@ sc hchat(char *text) {
 
     modelans();
 
-    curl_easy_setopt(curl, CURLOPT_URL, API_URL);
+    char api[256];
+    snprintf(api, sizeof(api), "%s%d/v1/chat/completions", lh, config.port);
+    curl_easy_setopt(curl, CURLOPT_URL, api);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_str);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, cbstream);
@@ -294,4 +318,42 @@ void chat_append(const char *role, const char *content) {
         }
     }
     json_object_put(msg);
+}
+
+struct json_object *cut_context(void) {
+    struct json_object *out = json_object_new_array();
+    int n = json_object_array_length(messages);
+    int budget = config.n_ctx - config.reserve - 512;
+    sysmsg("n_ctx=%d reserve=%d budget=%d n=%d\n", config.n_ctx, config.reserve, budget, n);
+
+    int i = 0;
+    while (i < n) {
+        struct json_object *msg = json_object_array_get_idx(messages, i);
+        struct json_object *jrole = NULL;
+        json_object_object_get_ex(msg, "role", &jrole);
+        const char *role = json_object_get_string(jrole);
+        if (strcmp(role, "system") != 0) break;
+        
+        json_object_array_add(out, json_object_get(msg));
+        i++;
+    }
+    
+    struct json_object *tail = json_object_new_array();
+    int start = n, used = 0;
+    for (int j = n - 1; j >= i; j--) {
+        struct json_object *msg = json_object_array_get_idx(messages, j);
+        struct json_object *jcontent = NULL;
+        json_object_object_get_ex(msg, "content", &jcontent);
+        const char *content = json_object_get_string(jcontent);
+        int tokens = content ? (int)strlen(content) / 3 + 10 : 10;
+        if (used + tokens > budget) break;
+        used += tokens;
+        start = j;
+    }
+
+    for (int j = start; j < n; j++) {
+        json_object_array_add(out, json_object_get(json_object_array_get_idx(messages, j)));
+    }
+
+    return out;
 }
