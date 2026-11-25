@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include "commands.h"
 #include "server.h"
+#include "config.h"
 #include "ui.h"
 #include <stdio.h>
 #include <unistd.h>
@@ -11,6 +12,7 @@
 extern char *ChatName;
 extern char *ToolName;
 extern char *ModelName;
+extern cfg config;
 
 sc mkchat(char* name, char* arg2) {
     (void)arg2;
@@ -19,13 +21,8 @@ sc mkchat(char* name, char* arg2) {
         return ERR;
     }
 
-    char rootdir[4096], chatdir[4096], file_path[4096];
-    if (resolve("~/.local/share/llorch", rootdir, sizeof(rootdir)) != 0) return ERR;
-
-    mkdir(rootdir, 0755);
-    snprintf(chatdir, sizeof(chatdir), "%s/Chats", rootdir);
-    mkdir(chatdir, 0755);
-    snprintf(file_path, sizeof(file_path), "%s/%s.jsonl", chatdir, name);
+    char file_path[4096];
+    snprintf(file_path, sizeof(file_path), "%s/%s.jsonl", config.chats_dir, name);
 
     FILE* file = fopen(file_path, "wx");
     if (file) {
@@ -50,10 +47,8 @@ sc rmchat(char *name, char* arg2) {
         return ERR;
     }
 
-    char chatdir[4096], file_path[4096];
-    if (resolve("~/.local/share/llorch/Chats", chatdir, sizeof(chatdir)) != 0) return ERR;
-
-    snprintf(file_path, sizeof(file_path), "%s/%s.jsonl", chatdir, name);
+    char file_path[4096];
+    snprintf(file_path, sizeof(file_path), "%s/%s.jsonl", config.chats_dir, name);
 
     if (remove(file_path) == 0) {
         sysmsg("Succesfuly removed\n");
@@ -78,10 +73,8 @@ sc chopen(char *name, char *arg2) {
         return ERR;
     }
 
-    char chatdir[4096], file_path[4096];
-    if (resolve("~/.local/share/llorch/Chats", chatdir, sizeof(chatdir)) != 0) return ERR;
-
-    snprintf(file_path, sizeof(file_path), "%s/%s.jsonl", chatdir, name);
+    char file_path[4096];
+    snprintf(file_path, sizeof(file_path), "%s/%s.jsonl", config.chats_dir, name);
 
     FILE *chat = fopen(file_path, "r");
     if (strcmp(name, "NewChat") == 0) {
@@ -137,10 +130,9 @@ sc renchat(char* OldName, char* NewName) {
         return ERR;
     }
 
-    char chatdir[4096], old_file[4096], new_file[4096];
-    if (resolve("~/.local/share/llorch/Chats", chatdir, sizeof(chatdir)) != 0) return ERR;
-    snprintf(old_file, sizeof(old_file), "%s/%s.jsonl", chatdir, OldName);
-    snprintf(new_file, sizeof(new_file), "%s/%s.jsonl", chatdir, NewName);
+    char old_file[4096], new_file[4096];
+    snprintf(old_file, sizeof(old_file), "%s/%s.jsonl", config.chats_dir, OldName);
+    snprintf(new_file, sizeof(new_file), "%s/%s.jsonl", config.chats_dir, NewName);
 
     FILE* chat = fopen(old_file, "r");
     if (!chat && errno == ENOENT) {
@@ -169,12 +161,7 @@ sc addmodel(char* gguf_path, char* name) {
         return ERR;
     }
 
-    char rootdir[4096], modeldir[4096], link_path[4096];
-    if (resolve("~/.local/share/llorch", rootdir, sizeof(rootdir)) != 0) return ERR;
-
-    mkdir(rootdir, 0755);
-    snprintf(modeldir, sizeof(modeldir), "%s/Models", rootdir);
-    mkdir(modeldir, 0755);
+    char modeldir[4096], link_path[4096];
     snprintf(link_path, sizeof(link_path), "%s/%s.gguf", modeldir, name);
     
     char abs[4096];

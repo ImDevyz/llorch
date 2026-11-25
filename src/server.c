@@ -1,6 +1,7 @@
 #include "server.h"
 #include "commands.h"
 #include "ui.h"
+#include "config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,8 +21,9 @@ static volatile sig_atomic_t gen_abort = 0;
 extern char *ModelName;
 extern char *ChatName;
 extern char *ToolName;
+extern cfg config;
 
-#define API_URL "http://127.0.0.1:8080/v1/chat/completions"
+char* lh = "http://127.0.0.1:";
 
 static void on_sigint(int s) {
     (void)s;
@@ -162,7 +164,21 @@ sc load_model(char *path, char* nil) {
         freopen("/tmp/llorch-server-out.log", "w", stdout);
         freopen("/tmp/llorch-server-err.log", "w", stderr);
 
-        char *args[] = {"llama-server", "-m", rpath, "--port", "8080", "-ngl", "99", "-c", "16384", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--jinja", NULL};
+        char port_str[16], ctx_str[16];
+        snprintf(port_str, sizeof(port_str), "%d", config.port);
+        snprintf(ctx_str, sizeof(ctx_str), "%d", config.n_ctx);
+
+        char *args[64];
+        int n = 0;
+        args[n++] = "llama-server";
+        args[n++] = "-m";     args[n++] = rpath;
+        args[n++] = "--port"; args[n++] = port_str;
+        args[n++] = "-c";     args[n++] = ctx_str;
+
+        for (int i = 0; i < config.flags_count && n < 62; i++)
+            if (config.server_flags[i]) args[n++] = config.server_flags[i];
+
+        args[n] = NULL;
         execvp("llama-server", args);
         _exit(1);
     }
@@ -175,7 +191,9 @@ sc load_model(char *path, char* nil) {
             syserr("Error while making curl request: %s\n", strerror(errno));
             return ERR;
         }
-        curl_easy_setopt(curl, CURLOPT_URL, "http://127.0.0.1:8080/health");
+        char hch[256];
+        snprintf(hch, sizeof(hch), "%s%d/health", lh, config.port);
+        curl_easy_setopt(curl, CURLOPT_URL, hch);
         curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
         int code = 0;
         CURLcode res = curl_easy_perform(curl);
@@ -200,7 +218,7 @@ sc load_model(char *path, char* nil) {
 
 sc hchat(char *text) {
     if (server_pid <= 0) {
-        sysmsg("Server don't started. Use /load <ModelName>\n");
+        sysmsg("Server isn't running. Use /load <ModelName>\n");
         return ERR;
     }
 
@@ -230,7 +248,9 @@ sc hchat(char *text) {
 
     modelans();
 
-    curl_easy_setopt(curl, CURLOPT_URL, API_URL);
+    char api[256];
+    snprintf(api, sizeof(api), "%s%d/v1/chat/completions", lh, config.port);
+    curl_easy_setopt(curl, CURLOPT_URL, api);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_str);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, cbstream);

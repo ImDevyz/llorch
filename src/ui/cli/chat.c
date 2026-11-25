@@ -18,6 +18,8 @@ void print(char* text, bool is_think) {
 
 void print_chat() {
     int count = json_object_array_length(messages);
+    system("clear");
+    sysmsg("Chat with %s on %s", ModelName, ChatName);
     for (int i = 0; i < count; i++) {
         json_object *item = json_object_array_get_idx(messages, i);
 
