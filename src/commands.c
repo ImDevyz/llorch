@@ -162,7 +162,7 @@ sc addmodel(char* gguf_path, char* name) {
     }
 
     char modeldir[4096], link_path[4096];
-    snprintf(link_path, sizeof(link_path), "%s/%s.gguf", modeldir, name);
+    snprintf(link_path, sizeof(link_path), "%s/%s.gguf", config.models_dir, name);
     
     char abs[4096];
     if (!realpath(gguf_path, abs)) {

@@ -11,7 +11,7 @@ extern char *ToolName;
 extern char *ModelName;
 extern struct json_object *messages;
 
-void print(char* text, bool is_think) {
+void print(const char* text, bool is_think) {
     if (is_think) printf(COLOR_THINK "%s" COLOR_RESET, text);
     else printf("%s", text);
 }

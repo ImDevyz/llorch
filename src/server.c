@@ -71,11 +71,12 @@ static size_t cbstream(char *ptr, size_t size, size_t nmemb, void *ud) {
             if (*p == ' ') p++;
             struct json_object *j = NULL, *ch, *d, *t;
             if (strcmp(p, "[DONE]") != 0) j = json_tokener_parse(p);
-
-            if (j && json_object_object_get_ex(j, "choices", &ch) &&
-                json_object_array_length(ch) > 0 &&
-                json_object_object_get_ex(json_object_array_get_idx(ch, 0), "delta", &d)) {
-
+            if (j) {
+                struct json_object *err;
+                if (json_object_object_get_ex(j, "error", &err))
+                    syserr("\n[SERVER] %s\n", json_object_to_json_string(err));
+            }
+            if (j && json_object_object_get_ex(j, "choices", &ch) && json_object_array_length(ch) > 0 && json_object_object_get_ex(json_object_array_get_idx(ch, 0), "delta", &d)) {
                 if (json_object_object_get_ex(d, "reasoning_content", &t)) {
                     const char *v = json_object_get_string(t);
                     if (v && *v) {
@@ -87,7 +88,7 @@ static size_t cbstream(char *ptr, size_t size, size_t nmemb, void *ud) {
                     }
                 }
 
-                if (json_object_object_get_ex(d, "content", &t)) {
+                if (json_object_object_get_ex(d, "content", &t)) {                   
                     const char *v = json_object_get_string(t);
                     if (v && *v) {
                         if (s->thinking) {
@@ -228,13 +229,16 @@ sc hchat(char *text) {
     }
 
     chat_append("user", text);
+    struct json_object* context = cut_context();
 
     struct json_object *root = json_object_new_object();
-    json_object_object_add(root, "messages", json_object_get(messages));
+    json_object_object_add(root, "messages", context);
     json_object_object_add(root, "model", json_object_new_string(ModelName));
     json_object_object_add(root, "stream", json_object_new_boolean(1));
 
     const char *json_str = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
+    FILE *dbg = fopen("/tmp/llorch-last-request.json", "w");
+    if (dbg) { fputs(json_str, dbg); fputc('\n', dbg); fclose(dbg); }
 
     CURL *curl = curl_easy_init();
     if (!curl) { 
@@ -314,4 +318,42 @@ void chat_append(const char *role, const char *content) {
         }
     }
     json_object_put(msg);
+}
+
+struct json_object *cut_context(void) {
+    struct json_object *out = json_object_new_array();
+    int n = json_object_array_length(messages);
+    int budget = config.n_ctx - config.reserve - 512;
+    sysmsg("n_ctx=%d reserve=%d budget=%d n=%d\n", config.n_ctx, config.reserve, budget, n);
+
+    int i = 0;
+    while (i < n) {
+        struct json_object *msg = json_object_array_get_idx(messages, i);
+        struct json_object *jrole = NULL;
+        json_object_object_get_ex(msg, "role", &jrole);
+        const char *role = json_object_get_string(jrole);
+        if (strcmp(role, "system") != 0) break;
+        
+        json_object_array_add(out, json_object_get(msg));
+        i++;
+    }
+    
+    struct json_object *tail = json_object_new_array();
+    int start = n, used = 0;
+    for (int j = n - 1; j >= i; j--) {
+        struct json_object *msg = json_object_array_get_idx(messages, j);
+        struct json_object *jcontent = NULL;
+        json_object_object_get_ex(msg, "content", &jcontent);
+        const char *content = json_object_get_string(jcontent);
+        int tokens = content ? (int)strlen(content) / 3 + 10 : 10;
+        if (used + tokens > budget) break;
+        used += tokens;
+        start = j;
+    }
+
+    for (int j = start; j < n; j++) {
+        json_object_array_add(out, json_object_get(json_object_array_get_idx(messages, j)));
+    }
+
+    return out;
 }

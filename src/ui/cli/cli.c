@@ -94,6 +94,7 @@ void ui_start() {
         "                                               ╰─────────────────────────────────────────────────────╯"
     };
     printf("%s" COLOR_RESET, hello);
+    sysmsg("\n\nport = %d\nn_ctx = %d\nreserve = %d\nmodels_dir = %s\nchats_dir = %s\nserver_flags = %s\nflags_count = %d", config.port, config.n_ctx, config.reserve, config.models_dir, config.chats_dir, config.server_flags, config.flags_count);
 
     while (1) {
         printf("\n");

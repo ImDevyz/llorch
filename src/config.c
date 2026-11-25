@@ -33,7 +33,7 @@ bool cfgload() {
     struct json_object *j;
     if (json_object_object_get_ex(root, "port", &j) && json_object_is_type(j, json_type_int)) config.port = json_object_get_int(j);
     if (json_object_object_get_ex(root, "n_ctx", &j) && json_object_is_type(j, json_type_int)) config.n_ctx = json_object_get_int(j);
-    if (json_object_object_get_ex(root, "reserve", &j) && json_object_is_type(j, json_type_int)) config.n_ctx = json_object_get_int(j);
+    if (json_object_object_get_ex(root, "reserve", &j) && json_object_is_type(j, json_type_int)) config.reserve = json_object_get_int(j);
     if (json_object_object_get_ex(root, "models_dir", &j) && json_object_is_type(j, json_type_string)) {
         if (resolve(json_object_get_string(j), config.models_dir, sizeof(config.models_dir)) != 0) return ERR;
         mkdir(config.models_dir, 0755);
@@ -60,16 +60,12 @@ bool cfgload() {
 void cfgfree(cfg* c) {
     if (!c) return;
 
-    // Освобождаем память только если массив флагов был выделен
     if (c->server_flags != NULL) {
-        // 1. Сначала освобождаем каждую отдельную строку в массиве
         for (int i = 0; i < c->flags_count; i++) {
             free(c->server_flags[i]);
         }
-        // 2. Затем освобождаем сам массив указателей
         free(c->server_flags);
-        
-        // Зануляем, чтобы избежать повторного освобождения (double free)
+
         c->server_flags = NULL;
         c->flags_count = 0;
     }
